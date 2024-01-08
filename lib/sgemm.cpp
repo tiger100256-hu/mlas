@@ -33,6 +33,9 @@ static size_t getKStride() {
     // if these data is smaller than L2 cache, then we could enlarge K_Blk
     // Upper bound 1024 and lower bound 256 here are empirical value
     auto L2Cache = getCacheSizeMlas(2, true);
+    if (L2Cache / sizeof(float) <= 12 * MLAS_SGEMM_PACKED_STRIDEN) {
+        return SGEMM_PACKED_STRIDEK;
+    }
     SGEMM_PACKED_STRIDEK = (L2Cache / sizeof(float) - 12 * MLAS_SGEMM_PACKED_STRIDEN) / (MLAS_SGEMM_PACKED_STRIDEN + 12);
     // apply upper bound 1024
     SGEMM_PACKED_STRIDEK = SGEMM_PACKED_STRIDEK >= 1024 ? 1024 : (SGEMM_PACKED_STRIDEK) & ~(MLAS_SGEMM_PACKED_STRIDEK - 1);
@@ -1648,10 +1651,10 @@ MlasGemmBatch(
         MLAS_SGEMM_STRIDEN_THREAD_ALIGN;
 
     //This heriustic is observed by the performance tests, mlas has poor performance when core >= 32
-    if (TargetThreadCount >= 32) {
-        ptrdiff_t L2CacheSize = getCacheSizeMlas(2, true);
+    ptrdiff_t KStride = getKStride();
+    ptrdiff_t L2CacheSize = getCacheSizeMlas(2, true);
+    if (TargetThreadCount >= 32 && (L2CacheSize / sizeof(float) > MLAS_SGEMM_PACKED_STRIDEN * KStride)) {
         // Ensure that data used fits L2 cache. M_BLK = (L2/sizeof(float) - N * K ) / (K + N), ThreadCountM = M / M_BLK
-        ptrdiff_t KStride = getKStride();
         ThreadCountM = M * (KStride + MLAS_SGEMM_PACKED_STRIDEN) / (L2CacheSize / sizeof(float) - MLAS_SGEMM_PACKED_STRIDEN * KStride);
         ThreadCountM = ThreadCountM >= ThreadsPerGemm ? ThreadsPerGemm : ThreadCountM;
         if (ThreadCountM <= 1) {
