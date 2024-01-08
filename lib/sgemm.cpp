@@ -1633,7 +1633,7 @@ MlasGemmBatch(
     }
     // let MLAS uses all available threads
     TargetThreadCount = MaximumThreadCount;
-    
+
     //
     // Segment the operation across multiple threads.
     //
@@ -1644,6 +1644,9 @@ MlasGemmBatch(
     ptrdiff_t ThreadsPerGemm = (TargetThreadCount + BatchSize - 1) / BatchSize;
     ptrdiff_t ThreadCountM;
     ptrdiff_t ThreadCountN;
+    const size_t BlockedN = (N + MLAS_SGEMM_STRIDEN_THREAD_ALIGN - 1) /
+        MLAS_SGEMM_STRIDEN_THREAD_ALIGN;
+
     //This heriustic is observed by the performance tests, mlas has poor performance when core >= 32
     if (TargetThreadCount >= 32) {
         ptrdiff_t L2CacheSize = getCacheSizeMlas(2, true);
@@ -1663,25 +1666,28 @@ MlasGemmBatch(
             ThreadCountM = (ThreadsPerGemm % ThreadCountM == 0) ? ThreadCountM : ThreadsPerGemm;
         }
         ThreadCountN = ThreadsPerGemm / ThreadCountM;
+        if (ThreadCountN == 0 ) {
+            ThreadCountN = 1;
+        }
+        if (size_t(ThreadCountN) > BlockedN) {
+            ThreadCountN = ptrdiff_t(BlockedN);
+        }
+        if (size_t(ThreadCountM) > M) {
+            ThreadCountM = ptrdiff_t(M);
+        }
+        ThreadsPerGemm = ThreadCountN * ThreadCountM;
     } else {
         if (N > M) {
-
-            const size_t BlockedN = (N + MLAS_SGEMM_STRIDEN_THREAD_ALIGN - 1) /
-                MLAS_SGEMM_STRIDEN_THREAD_ALIGN;
-
             if (size_t(ThreadsPerGemm) > BlockedN) {
                 ThreadsPerGemm = ptrdiff_t(BlockedN);
             }
-
             ThreadCountM = 1;
             ThreadCountN = ThreadsPerGemm;
 
         } else {
-
             if (size_t(ThreadsPerGemm) > M) {
                 ThreadsPerGemm = ptrdiff_t(M);
             }
-
             ThreadCountM = ThreadsPerGemm;
             ThreadCountN = 1;
         }
